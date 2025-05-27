@@ -26,23 +26,26 @@ def linear_derivada(x):
     return 0.1
 
 # Carregar CSV
-def carregar_dados(path):
+def carregar_dados(path, ativacao):
     df = pd.read_csv(path)
-    
-  
+
     entradas = df.iloc[:, :-1].values
     saidas_raw = df.iloc[:, -1]
     classes = sorted(saidas_raw.unique())
-    
-   
-    entradas_norm = (entradas - entradas.min(axis=0)) / (entradas.max(axis=0) - entradas.min(axis=0))
-    
-  
+
+    if ativacao == 'linear':
+        # Usar dados originais ou padronizados (z-score)
+        entradas_corrigidas = (entradas - entradas.mean(axis=0)) / entradas.std(axis=0)
+    else:
+        # Usar normalização Min-Max (0-1) para sigmoid/tanh
+        entradas_corrigidas = (entradas - entradas.min(axis=0)) / (entradas.max(axis=0) - entradas.min(axis=0))
+
+    # Codificação one-hot para classes
     saidas = np.zeros((len(saidas_raw), len(classes)))
     for i, classe in enumerate(saidas_raw):
         saidas[i, classes.index(classe)] = 1
-    
-    return entradas_norm, saidas, classes, saidas_raw.values
+
+    return entradas_corrigidas, saidas, classes, saidas_raw.values
 
 
 # Inicialização dos pesos
@@ -142,12 +145,14 @@ def iniciar_interface():
     def iniciar_treinamento():
         global W1_trained, W2_trained, classes_trained, ativacao_trained
         try:
-            entradas, saidas, classes, classes_reais = carregar_dados(entrada_csv.get())
+            ativacao = var_ativacao.get()  
+            entradas, saidas, classes, classes_reais = carregar_dados(entrada_csv.get(), ativacao)
+
             n_oculta = int(entrada_neuronios.get())
             taxa = float(entrada_taxa.get())
             max_epocas = int(entrada_epocas.get())
             erro = float(entrada_erro.get())
-            ativacao = var_ativacao.get()
+           
 
             W1, W2, erros = treinar_rede(entradas, saidas, n_oculta, taxa, max_epocas, erro, ativacao)
             plot_erro_por_epoca(erros)
@@ -167,7 +172,8 @@ def iniciar_interface():
         try:
             if W1_trained is None:
                 raise Exception("A rede ainda não foi treinada!")
-            entradas_teste, _, _, classes_reais_teste = carregar_dados(entrada_csv_teste.get())
+            entradas_teste, _, _, classes_reais_teste = carregar_dados(entrada_csv_teste.get(), ativacao_trained)
+
 
             func, _ = ativacoes[ativacao_trained]
             saidas_ocultas = func(np.dot(entradas_teste, W1_trained))
