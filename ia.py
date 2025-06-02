@@ -1,10 +1,10 @@
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.model_selection import train_test_split 
 
 # Funções de ativação e suas derivadas
 def sigmoid(x):
@@ -132,6 +132,8 @@ W1_trained = None
 W2_trained = None
 classes_trained = None
 ativacao_trained = None
+entradas_teste_global = None 
+classes_reais_teste_global = None 
 
 def iniciar_interface():
     def selecionar_arquivo_treinamento():
@@ -142,12 +144,47 @@ def iniciar_interface():
         caminho = filedialog.askopenfilename(title="Selecione o arquivo CSV de teste", filetypes=[("CSV files", "*.csv")])
         entrada_csv_teste.set(caminho)
 
+    def toggle_split():
+        if var_usar_split.get():
+            botao_selecionar_teste.config(state=tk.DISABLED)
+            entrada_csv_teste.set("Usando split do treinamento")
+            entrada_csv_teste.config(state=tk.DISABLED)
+        else:
+            botao_selecionar_teste.config(state=tk.NORMAL)
+            entrada_csv_teste.set("")
+            entrada_csv_teste.config(state=tk.NORMAL)
+
+
     def iniciar_treinamento():
-        global W1_trained, W2_trained, classes_trained, ativacao_trained
+        global W1_trained, W2_trained, classes_trained, ativacao_trained, entradas_teste_global, classes_reais_teste_global
         try:
             ativacao = var_ativacao.get()  
-            entradas, saidas, classes, classes_reais = carregar_dados(entrada_csv.get(), ativacao)
+            caminho_treinamento = entrada_csv.get()
 
+            if not caminho_treinamento:
+                messagebox.showerror("Erro", "Por favor, selecione um arquivo de treinamento.")
+                return
+
+            # Carregar todos os dados do arquivo de treinamento
+            entradas_completas, saidas_completas, classes, classes_reais_completas = carregar_dados(caminho_treinamento, ativacao)
+
+            if var_usar_split.get():
+                # Dividir os dados em treinamento e teste
+                X_treino, X_teste, y_treino, y_teste, classes_reais_treino, classes_reais_teste = train_test_split(
+                    entradas_completas, saidas_completas, classes_reais_completas, test_size=float(entrada_split_ratio.get()), random_state=42
+                )
+                entradas = X_treino
+                saidas = y_treino
+                entradas_teste_global = X_teste
+                classes_reais_teste_global = classes_reais_teste
+                messagebox.showinfo("Split de Dados", f"Dados divididos: Treinamento = {len(X_treino)} amostras, Teste = {len(X_teste)} amostras.")
+            else:
+                entradas = entradas_completas # Usar todos os dados para treinamento se não houver split
+                saidas = saidas_completas # Usar todas as saídas para treinamento se não houver split
+                # Se não usar split, resetar as variáveis globais de teste para garantir
+                entradas_teste_global = None
+                classes_reais_teste_global = None
+                
             n_oculta = int(entrada_neuronios.get())
             taxa = float(entrada_taxa.get())
             max_epocas = int(entrada_epocas.get())
@@ -161,8 +198,10 @@ def iniciar_interface():
             W1_trained, W2_trained, classes_trained, ativacao_trained = W1, W2, classes, ativacao
 
             # Habilitar botão de teste
-            botao_selecionar_teste.config(state=tk.NORMAL)
             botao_testar.config(state=tk.NORMAL)
+            if not var_usar_split.get(): # Apenas habilita se não estiver usando split
+                botao_selecionar_teste.config(state=tk.NORMAL)
+
 
             messagebox.showinfo("Treinamento", "Rede treinada com sucesso! Selecione o arquivo de teste e clique em Testar Rede.")
         except Exception as e:
@@ -172,7 +211,17 @@ def iniciar_interface():
         try:
             if W1_trained is None:
                 raise Exception("A rede ainda não foi treinada!")
-            entradas_teste, _, _, classes_reais_teste = carregar_dados(entrada_csv_teste.get(), ativacao_trained)
+            
+            if var_usar_split.get():
+                if entradas_teste_global is None:
+                    raise Exception("Dados de teste do split não disponíveis. Treine a rede com split primeiro.")
+                entradas_teste = entradas_teste_global
+                classes_reais_teste = classes_reais_teste_global
+            else:
+                caminho_teste = entrada_csv_teste.get()
+                if not caminho_teste:
+                    raise Exception("Por favor, selecione um arquivo de teste.")
+                entradas_teste, _, _, classes_reais_teste = carregar_dados(caminho_teste, ativacao_trained)
 
 
             func, _ = ativacoes[ativacao_trained]
@@ -184,7 +233,7 @@ def iniciar_interface():
             
             # Calcular e mostrar acurácia
             total = len(classes_reais_teste)
-            acertos = sum([1 for i in range(total) if classes_reais_teste[i] == predicoes[i]])
+            acertos = sum([1 for i in range(total) if str(classes_reais_teste[i]) == str(predicoes[i])]) # Convert to string for robust comparison
             acuracia = acertos / total * 100
             messagebox.showinfo("Resultados", f"Total de exemplos: {total}\nAcertos: {acertos}\nAcurácia: {acuracia:.2f}%")
         except Exception as e:
@@ -218,17 +267,29 @@ def iniciar_interface():
     var_ativacao = tk.StringVar(value='sigmoid')
     tk.OptionMenu(app, var_ativacao, 'sigmoid', 'tanh', 'linear').grid(row=5, column=1)
 
-    tk.Button(app, text="Iniciar Treinamento", command=iniciar_treinamento).grid(row=6, column=0, columnspan=3)
+    # Adicionar opção de split
+    var_usar_split = tk.BooleanVar(value=False)
+    tk.Checkbutton(app, text="Usar Split (mesmo arquivo para teste)", variable=var_usar_split, command=toggle_split).grid(row=6, column=0, columnspan=2, sticky="w")
+    
+    tk.Label(app, text="Proporção do Split (ex: 0.2 para 20% teste):").grid(row=7, column=0)
+    entrada_split_ratio = tk.Entry(app)
+    entrada_split_ratio.insert(0, "0.2") # Valor padrão
+    entrada_split_ratio.grid(row=7, column=1)
 
-    # Novos elementos para teste
-    tk.Label(app, text="Arquivo CSV de Teste:").grid(row=7, column=0)
+    tk.Button(app, text="Iniciar Treinamento", command=iniciar_treinamento).grid(row=8, column=0, columnspan=3, pady=10)
+
+    # Elementos para teste
+    tk.Label(app, text="Arquivo CSV de Teste:").grid(row=9, column=0)
     entrada_csv_teste = tk.StringVar()
-    tk.Entry(app, textvariable=entrada_csv_teste, width=40).grid(row=7, column=1)
-    botao_selecionar_teste = tk.Button(app, text="Selecionar", command=selecionar_arquivo_teste, state=tk.DISABLED)
-    botao_selecionar_teste.grid(row=7, column=2)
+    tk.Entry(app, textvariable=entrada_csv_teste, width=40).grid(row=9, column=1)
+    botao_selecionar_teste = tk.Button(app, text="Selecionar", command=selecionar_arquivo_teste)
+    botao_selecionar_teste.grid(row=9, column=2)
 
     botao_testar = tk.Button(app, text="Testar Rede", command=testar_rede, state=tk.DISABLED)
-    botao_testar.grid(row=8, column=0, columnspan=3)
+    botao_testar.grid(row=10, column=0, columnspan=3, pady=5)
+
+    # Chamar toggle_split inicialmente para definir o estado correto dos elementos de teste
+    toggle_split()
 
     app.mainloop()
 
